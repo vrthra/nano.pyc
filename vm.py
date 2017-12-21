@@ -2,6 +2,10 @@
 
 import dis
 
+DEBUG = True
+def log(*x):
+    if DEBUG: print(*x)
+
 mathops = {
           'BINARY_ADD': lambda a, b: a + b,
           'BINARY_SUBTRACT': lambda a, b: a - b,
@@ -71,16 +75,23 @@ class Vm:
         self.stack = self.stack[:len(self.stack)-nargs]
         if type(fn) == tuple:
             qname, myfn_code, p = fn
-            v = Vm(myfn_code, args)
-            v.interpret()
+            v = Vm(args).bytes(myfn_code)
+            v.i()
             self.stack.append(v.result)
-        else:
-            l = {**globals(), **locals()}
-            if fn not in l: raise Exception('Function[%s] not found' % str(fn))
-            myfn = l[fn]
-            v = Vm(myfn.__code__, args)
-            v.interpret()
-            self.stack.append(v.result)
+        elif fn in self.code.co_names:
+            v = dict(zip(self.code.co_names, self.local))
+            if fn not in v:
+                l = {**globals(), **locals()}
+                if fn not in l: raise Exception('Function[%s] not found' % str(fn))
+                myfn = l[fn]
+                v = Vm(args).bytes(myfn.__code__)
+                v.i()
+                self.stack.append(v.result)
+            else:
+                (name, myfn, p) = v[fn]
+                v = Vm(args).bytes(myfn)
+                v.i()
+                self.stack.append(v.result)
 
     def i_compare_op(self, opname):
         op = dis.cmp_op[opname]
@@ -131,9 +142,20 @@ class Vm:
         code = self.stack.pop()
         self.stack.append((qname, code, p))
 
-    def __init__(self, code, local=[]):
+    def __init__(self, local=[]):
         self.stack = []
         self.block_stack = []
+        self.local = local
+
+    def statement(self, my_str, kind='exec'):
+        log(kind,my_str)
+        return self.bytes(compile(my_str, '<>', kind))
+
+    def expr(self, my_str, kind='eval'):
+        log(kind, my_str)
+        return self.bytes(compile(my_str, '<>', kind))
+
+    def bytes(self, code):
         self.fnops = {
                 'LOAD_GLOBAL': self.i_load_global,
                 'LOAD_FAST': self.i_load_fast,
@@ -159,16 +181,14 @@ class Vm:
                 'POP_BLOCK': self.i_pop_block,
                 }
         self.code = Code(code)
-        self.local = local #dict(zip(self.code.co_varnames,local))
+        return self
 
-    def interpret(self):
-        #for i,j in enumerate(self.code.opcodes): print(i, j.opname, j.arg)
-
+    def i(self):
         ops = self.code.opcodes
         ins = 0
         while ins < len(ops):
             i = ops[ins]
-            print(ins,i.opname, i.arg, i.is_jump_target)
+            log(ins,i.opname, i.arg, i.is_jump_target)
             if i.opname in mathops:
                 fn = mathops[i.opname]
                 nargs = fn.__code__.co_argcount
@@ -213,9 +233,16 @@ def gcd(a, b):
         b = c % b
     return a
 
-#v = Vm(compile('my_add(2, 3)', '<>', 'eval')).interpret()
-#v = Vm(compile('gcd(12, 15)', '<>', 'eval')).interpret()
-#v = Vm(compile('def x(a, b): return a+b', '<>', 'exec')).interpret()
-v = Vm(compile('(lambda a, b: a+b)(2, 3)', '<>', 'eval')).interpret()
+v = Vm().expr('my_add(2, 3)').i()
+print(v.result)
+v = Vm().expr('gcd(12, 15)').i()
+print(v.result)
+
+v = Vm()
+v.statement('def x(a, b): return a+b').i()
+v.expr('x(1,2)').i()
+print(v.result)
+
+v = Vm().expr('(lambda a, b: a+b)(2, 3)').i()
 print(v.result)
 
